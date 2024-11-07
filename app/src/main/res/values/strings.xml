@@ -1,0 +1,8 @@
+<resources>
+    <string name="app_name">awty</string>
+    <string name="minutes_between_messages">Minutes Between Messages</string>
+    <string name="next_message_in">Next message in: --:--</string>
+    <string name="start">Start</string>
+    <string name="phone_number">Phone Number</string>
+    <string name="message">Message</string>
+</resources>
