@@ -1,12 +1,17 @@
 package edu.uw.ischool.lgoing7.awty
 
+import android.Manifest
+import android.content.pm.PackageManager
 import android.os.Bundle
 import android.os.CountDownTimer
+import android.telephony.SmsManager
 import android.widget.Button
 import android.widget.EditText
 import android.widget.TextView
 import android.widget.Toast
 import androidx.appcompat.app.AppCompatActivity
+import androidx.core.app.ActivityCompat
+import androidx.core.content.ContextCompat
 
 class MainActivity : AppCompatActivity() {
     private lateinit var messageInput: EditText
@@ -18,6 +23,10 @@ class MainActivity : AppCompatActivity() {
     private var timer: CountDownTimer? = null
     private var isRunning = false
 
+    companion object {
+        private const val SMS_PERMISSION_REQUEST = 123
+    }
+
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
         setContentView(R.layout.activity_main)
@@ -28,15 +37,11 @@ class MainActivity : AppCompatActivity() {
         timerText = findViewById(R.id.timerText)
         startStopButton = findViewById(R.id.startStopButton)
 
-
         startStopButton.setOnClickListener {
             if (!isRunning) {
                 val validationResult = validateInputs()
                 if (validationResult.first) {
-                    Toast.makeText(this,
-                        "Beginning nagging service...",
-                        Toast.LENGTH_SHORT).show()
-                    startService()
+                    checkSmsPermissionAndStart()
                 } else {
                     Toast.makeText(this,
                         validationResult.second,
@@ -44,6 +49,43 @@ class MainActivity : AppCompatActivity() {
                 }
             } else {
                 stopService()
+            }
+        }
+    }
+
+    private fun checkSmsPermissionAndStart() {
+        if (ContextCompat.checkSelfPermission(this, Manifest.permission.SEND_SMS)
+            != PackageManager.PERMISSION_GRANTED) {
+            ActivityCompat.requestPermissions(this,
+                arrayOf(Manifest.permission.SEND_SMS),
+                SMS_PERMISSION_REQUEST)
+        } else {
+            Toast.makeText(this,
+                "Beginning nagging service...",
+                Toast.LENGTH_SHORT).show()
+            startService()
+        }
+    }
+
+    override fun onRequestPermissionsResult(
+        requestCode: Int,
+        permissions: Array<out String>,
+        grantResults: IntArray
+    ) {
+        super.onRequestPermissionsResult(requestCode, permissions, grantResults)
+        when (requestCode) {
+            SMS_PERMISSION_REQUEST -> {
+                if (grantResults.isNotEmpty() &&
+                    grantResults[0] == PackageManager.PERMISSION_GRANTED) {
+                    Toast.makeText(this,
+                        "Beginning nagging service...",
+                        Toast.LENGTH_SHORT).show()
+                    startService()
+                } else {
+                    Toast.makeText(this,
+                        "SMS permission denied. Cannot start service.",
+                        Toast.LENGTH_LONG).show()
+                }
             }
         }
     }
@@ -66,16 +108,16 @@ class MainActivity : AppCompatActivity() {
 
     private fun startService() {
         isRunning = true
-        "Stop".also { startStopButton.text = it }
+        startStopButton.text = getString(R.string.stop)
         val minutes = minutesInput.text.toString().toLong()
         startTimer(minutes * 60 * 1000) // min -> ms
     }
 
     private fun stopService() {
         isRunning = false
-        "Start".also { startStopButton.text = it }
+        startStopButton.text = getString(R.string.start)
         timer?.cancel()
-        "Next message in: --:--".also { timerText.text = it }
+        timerText.text = getString(R.string.next_message_in)
     }
 
     private fun startTimer(totalTimeInMillis: Long) {
@@ -85,12 +127,11 @@ class MainActivity : AppCompatActivity() {
             override fun onTick(millisUntilFinished: Long) {
                 val minutes = (millisUntilFinished / 1000) / 60
                 val seconds = (millisUntilFinished / 1000) % 60
-                "Next message in: %02d:%02d".format(minutes, seconds).also { timerText.text = it }
+                timerText.text = getString(R.string.next_message_in_02d_02d).format(minutes, seconds)
             }
 
             override fun onFinish() {
-                showMessage()
-
+                sendSmsMessage()
                 if (isRunning) {
                     startTimer(totalTimeInMillis)
                 }
@@ -98,12 +139,41 @@ class MainActivity : AppCompatActivity() {
         }.start()
     }
 
-    private fun showMessage() {
-        val phone = phoneInput.text.toString()
-        val message = messageInput.text.toString()
-        Toast.makeText(this,
-            "Texting $phone\n$message",
-            Toast.LENGTH_LONG).show()
+    private fun sendSmsMessage() {
+        try {
+            val phone = phoneInput.text.toString()
+                .replace(Regex("[^0-9]"), "")
+            val message = messageInput.text.toString()
+
+            @Suppress("DEPRECATION") val smsManager = SmsManager.getDefault()
+
+            if (message.length > 160) {
+                val parts = smsManager.divideMessage(message)
+                smsManager.sendMultipartTextMessage(
+                    "+1$phone",  // +1 for US
+                    null,
+                    parts,
+                    null,
+                    null
+                )
+            } else {
+                smsManager.sendTextMessage(
+                    "+1$phone",
+                    null,
+                    message,
+                    null,
+                    null
+                )
+            }
+
+            Toast.makeText(this,
+                "SMS sent to $phone",
+                Toast.LENGTH_SHORT).show()
+        } catch (e: Exception) {
+            Toast.makeText(this,
+                "Failed to send SMS: ${e.message}",
+                Toast.LENGTH_LONG).show()
+        }
     }
 
     override fun onDestroy() {
